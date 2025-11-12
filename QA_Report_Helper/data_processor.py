@@ -343,31 +343,49 @@ class DataProcessor:
                 f"Allowed values: {', '.join(self.config.ACCEPTED_LEAD_STATUS)}"
             )
     
-    def validate_dq_reasons(self, records: List[Dict[str, Any]]) -> None:
-        """Validate DQ reason values only for disqualified leads with case-sensitive matching."""
-        accepted_reasons = list(self.config.ACCEPTED_DQ_REASON)
+    def normalize_dq_reason(self, dq_reason: str) -> str:
+        """
+        Normalize DQ Reason to Proper Case format.
+        Accepts all DQ reasons and converts them to title case.
         
-        invalid_reasons = set()
+        Example: "email bounce back" → "Email Bounce Back"
+        Example: "INVALID PHONE NUMBER" → "Invalid Phone Number"
+        
+        Args:
+            dq_reason: Original DQ Reason text
+            
+        Returns:
+            DQ Reason in Proper Case (Title Case)
+        """
+        if not dq_reason or str(dq_reason).strip() in ["", "-"]:
+            return dq_reason
+        
+        # Clean whitespace and convert to title case
+        clean_reason = str(dq_reason).strip()
+        return clean_reason.title()
+    
+    def validate_dq_reasons(self, records: List[Dict[str, Any]]) -> None:
+        """
+        Normalize DQ reason values for disqualified leads.
+        Accepts all DQ reasons but standardizes known variations.
+        This is now a normalization step rather than strict validation.
+        """
+        # No strict validation - just log unique DQ reasons for informational purposes
+        unique_reasons = set()
         for record in records:
             lead_status = self.normalize(record.get("Lead Status"))
             
-            # Only validate DQ Reason for disqualified leads
             if lead_status == "disqualified":
                 dq_reason = record.get("DQ Reason")
                 if dq_reason is not None:
-                    # Clean whitespace but preserve case
                     clean_reason = str(dq_reason).strip()
-                    # Skip if it's blank or just a dash
                     if clean_reason and clean_reason != "-":
-                        # Case-sensitive exact match
-                        if clean_reason not in accepted_reasons:
-                            invalid_reasons.add(clean_reason)
+                        unique_reasons.add(clean_reason)
         
-        if invalid_reasons:
-            raise ValidationError(
-                f"Invalid DQ Reason values for Disqualified leads (case-sensitive): {', '.join(sorted(invalid_reasons))}. "
-                f"Allowed values: {', '.join(accepted_reasons)}"
-            )
+        if unique_reasons:
+            logger.info(f"Found {len(unique_reasons)} unique DQ Reason values in dataset")
+        
+        # No ValidationError raised - all DQ reasons are accepted
     
     def check_optional_columns(self, headers: List[str]) -> Dict[str, bool]:
         """Check which optional columns are available in the data."""
@@ -380,7 +398,7 @@ class DataProcessor:
         return optional_availability
     
     def clean_data(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Clean and standardize data."""
+        """Clean and standardize data with DQ Reason normalization."""
         cleaned_records = []
         
         for record in records:
@@ -393,7 +411,12 @@ class DataProcessor:
                     # For Lead Status, keep empty if missing; for others use (Blank)
                     cleaned_record[field] = "" if field == "Lead Status" else "(Blank)"
                 else:
-                    cleaned_record[field] = str(value).strip()
+                    cleaned_value = str(value).strip()
+                    # Normalize DQ Reason to standardize variations
+                    if field == "DQ Reason":
+                        cleaned_record[field] = self.normalize_dq_reason(cleaned_value)
+                    else:
+                        cleaned_record[field] = cleaned_value
             
             cleaned_records.append(cleaned_record)
         
