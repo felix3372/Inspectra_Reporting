@@ -1,0 +1,10 @@
+[server]
+# Increase the maximum allowed file upload size to 1024 MB (1 GB)
+maxUploadSize = 1024
+
+# Increase the maximum websocket message size to 1024 MB
+maxMessageSize = 1024
+
+# Disable CORS and XSRF to prevent network errors in certain deployment proxies
+enableCORS = false
+enableXsrfProtection = false
