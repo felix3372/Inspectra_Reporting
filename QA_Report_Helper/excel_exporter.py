@@ -176,26 +176,43 @@ class ExcelExporter:
                 self._apply_cell_formatting(cell, row_idx, total_rows)
             current_row += 1
 
-        # Highlight rows whose combination is NOT defined in the Mapping
+        # Highlight rows whose combination is NOT defined in the Snapshot
         # snapshot (out-of-snapshot pairings). Applied here — before any
-        # merging — so it works whether or not columns are merged. Only the
-        # innermost grouping cell + the count cell are highlighted, since the
-        # outer grouping cells get merged (and would hide a per-row fill).
+        # merging. Uses smart prefix-matching to identify exactly WHICH
+        # column broke the hierarchy, and highlights that specific cell.
         if defined_combos is not None and report_data:
             num_grouping = len(report_data[0]) - 1
+            
+            # Build valid prefixes for smart highlighting
+            valid_prefixes = [set() for _ in range(num_grouping)]
+            for defined_combo in defined_combos:
+                for i in range(1, num_grouping + 1):
+                    valid_prefixes[i-1].add(defined_combo[:i])
+
             highlight_fill = PatternFill(
                 start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"
             )
             highlight_font = Font(color="9C0006", bold=True)
+            
             for row_idx in range(1, total_rows):  # skip header
                 row_vals = report_data[row_idx]
                 if not row_vals or str(row_vals[0]).strip().lower() == "grand total":
                     continue
+                
                 combo = tuple(row_vals[:num_grouping])
                 if combo in defined_combos:
                     continue
+                
+                # Find exactly which column broke the hierarchy
+                mismatch_idx = num_grouping - 1  # default to innermost
+                for i in range(num_grouping):
+                    if combo[:i+1] not in valid_prefixes[i]:
+                        mismatch_idx = i
+                        break
+                
                 ws_row = start_row + row_idx
-                for col in (num_grouping, num_grouping + 1):
+                # Highlight the exact offending cell (1-indexed) + the Count cell
+                for col in (mismatch_idx + 1, num_grouping + 1):
                     cell = ws.cell(row=ws_row, column=col)
                     cell.fill = highlight_fill
                     cell.font = highlight_font

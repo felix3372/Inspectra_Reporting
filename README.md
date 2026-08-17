@@ -26,7 +26,7 @@ Then open http://localhost:8501 and upload your `.xlsx` / `.xlsm` file.
 - `.streamlit/config.toml` raises the upload limit to 1 GB.
 - The optional `Mapping` sheet defines grouping levels (headers, left-to-right)
   and their valid parent→child combinations (merged cells = hierarchy). Rows in
-  the exported Excel that fall outside the Mapping snapshot are highlighted in red.
+  the exported Excel that fall outside the Snapshot data are highlighted in red.
 
 ## Project layout
 

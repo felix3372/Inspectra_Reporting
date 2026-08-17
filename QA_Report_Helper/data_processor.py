@@ -24,6 +24,8 @@ class DataProcessor:
         self.config = config
         self.date_column = None
         self.parsed_dates = {}
+        self._cached_excel_file = None
+
     
     @staticmethod
     def normalize(value: Any) -> str:
@@ -40,23 +42,27 @@ class DataProcessor:
         try:
             self.validate_file_size(uploaded_file)
             
-            wb = load_workbook(uploaded_file, read_only=True, data_only=True)
-            if not wb.worksheets:
-                raise ValidationError("No worksheets found in the file")
+            if hasattr(uploaded_file, 'seek'):
+                try:
+                    uploaded_file.seek(0)
+                except Exception:
+                    pass
             
-            # Find Qualified and Disqualified sheets (case-insensitive)
-            qualified_sheet = None
-            disqualified_sheet = None
+            # Reset cache if a new file is uploaded
+            self._cached_excel_file = pd.ExcelFile(uploaded_file)
+            sheet_names = self._cached_excel_file.sheet_names
             
-            for sheet in wb.worksheets:
-                sheet_name_lower = sheet.title.lower().strip()
-                if sheet_name_lower == "qualified":
-                    qualified_sheet = sheet
-                elif sheet_name_lower == "disqualified":
-                    disqualified_sheet = sheet
+            qualified_sheet_name = None
+            disqualified_sheet_name = None
             
-            # Check if at least one sheet exists
-            if qualified_sheet is None and disqualified_sheet is None:
+            for sheet in sheet_names:
+                sheet_lower = sheet.lower().strip()
+                if sheet_lower == "qualified":
+                    qualified_sheet_name = sheet
+                elif sheet_lower == "disqualified":
+                    disqualified_sheet_name = sheet
+            
+            if qualified_sheet_name is None and disqualified_sheet_name is None:
                 raise ValidationError(
                     'Required sheets not found. File must contain at least one sheet named "Qualified" or "Disqualified" (case-insensitive)'
                 )
@@ -64,20 +70,20 @@ class DataProcessor:
             all_records = []
             all_headers = []
             
-            # Process Qualified sheet if it exists
-            if qualified_sheet is not None:
-                logger.debug(f"Processing 'Qualified' sheet: {qualified_sheet.title}")
-                headers, records = self._parse_sheet(qualified_sheet, "Qualified")
+            if qualified_sheet_name:
+                logger.debug(f"Processing 'Qualified' sheet: {qualified_sheet_name}")
+                df_qual = pd.read_excel(self._cached_excel_file, sheet_name=qualified_sheet_name)
+                headers, records = self._parse_dataframe(df_qual, "Qualified")
                 all_headers.extend(headers)
                 all_records.extend(records)
                 logger.debug(f"Loaded {len(records)} records from Qualified sheet")
             else:
                 logger.warning("'Qualified' sheet not found, proceeding without it")
             
-            # Process Disqualified sheet if it exists
-            if disqualified_sheet is not None:
-                logger.debug(f"Processing 'Disqualified' sheet: {disqualified_sheet.title}")
-                headers, records = self._parse_sheet(disqualified_sheet, "Disqualified")
+            if disqualified_sheet_name:
+                logger.debug(f"Processing 'Disqualified' sheet: {disqualified_sheet_name}")
+                df_disqual = pd.read_excel(self._cached_excel_file, sheet_name=disqualified_sheet_name)
+                headers, records = self._parse_dataframe(df_disqual, "Disqualified")
                 all_headers.extend(headers)
                 all_records.extend(records)
                 logger.debug(f"Loaded {len(records)} records from Disqualified sheet")
@@ -87,7 +93,6 @@ class DataProcessor:
             if not all_records:
                 raise ValidationError("No valid data records found in any sheet")
             
-            # Combine all unique headers from both sheets
             unique_headers = []
             seen_headers = set()
             for header in all_headers:
@@ -104,43 +109,34 @@ class DataProcessor:
         except Exception as e:
             logger.error(f"Error loading Excel file: {str(e)}")
             raise ValidationError(f"Error reading file: {str(e)}")
-    
-    def _parse_sheet(self, worksheet, sheet_type: str) -> Tuple[List[str], List[Dict[str, Any]]]:
-        """Parse a single worksheet and return headers and records."""
-        if worksheet.max_row < 2:
+
+    def _parse_dataframe(self, df: pd.DataFrame, sheet_type: str) -> Tuple[List[str], List[Dict[str, Any]]]:
+        """Parse a pandas DataFrame and return headers and records."""
+        # Drop completely empty rows
+        df = df.dropna(how='all')
+        
+        if df.empty:
             logger.warning(f"{sheet_type} sheet contains no data rows")
             return [], []
+            
+        # Get headers
+        headers = [str(col).strip() if pd.notna(col) and not str(col).startswith("Unnamed:") else f"Column_{i+1}" for i, col in enumerate(df.columns)]
         
-        # Extract data from worksheet
-        data = []
-        for row in worksheet.iter_rows(values_only=True):
-            if any(cell is not None for cell in row):  # Skip completely empty rows
-                data.append(row)
+        # Replace NaN with None
+        df = df.astype(object).where(pd.notna(df), None)
         
-        if not data:
-            logger.warning(f"No valid data found in {sheet_type} sheet")
-            return [], []
-        
-        # Extract headers
-        headers = [str(h).strip() if h is not None else f"Column_{i+1}" for i, h in enumerate(data[0])]
-        
-        # Create records
         records = []
-        for row_idx, row in enumerate(data[1:], start=2):
-            if not any(cell is not None for cell in row):  # Skip empty rows
-                continue
-            
+        raw_records = df.to_dict(orient='records')
+        
+        for row_idx, record_dict in enumerate(raw_records, start=2): # +2 for header and 1-index
             record = {}
-            for i, header in enumerate(headers):
-                value = row[i] if i < len(row) else None
-                record[header] = value
+            for original_col, header in zip(df.columns, headers):
+                record[header] = record_dict[original_col]
             
-            # Add metadata
             record['_row_number'] = row_idx
             record['_sheet_name'] = sheet_type
-            
             records.append(record)
-        
+            
         return headers, records
     
     def detect_date_column(self, headers: List[str]) -> Optional[str]:
@@ -399,7 +395,7 @@ class DataProcessor:
     
     def parse_mapping_sheet(self, uploaded_file) -> Optional[Dict[str, Any]]:
         """
-        Parse the optional 'Mapping' sheet as a HIERARCHY.
+        Parse the optional 'Snapshot' sheet as a HIERARCHY.
 
         Header cells (left-to-right) are the grouping levels; each data row is
         one valid combination. Merged / blank cells in the outer columns are
@@ -419,7 +415,7 @@ class DataProcessor:
               "values":       {level name: ordered unique values},
               "combinations": [ordered, deduped tuples of values],
             }
-        Returns None if the Mapping sheet is absent or has no usable data.
+        Returns None if the Snapshot sheet is absent or has no usable data.
         Never raises — failure to parse this optional sheet must not block
         the main report.
 
@@ -428,33 +424,32 @@ class DataProcessor:
         column-mapping step.
         """
         try:
-            # Rewind stream if uploaded_file supports it (Streamlit
-            # UploadedFile does, network path bytes may not)
-            try:
-                uploaded_file.seek(0)
-            except Exception:
-                pass
+            excel_file = getattr(self, '_cached_excel_file', None)
+            if not excel_file:
+                if hasattr(uploaded_file, 'seek'):
+                    try:
+                        uploaded_file.seek(0)
+                    except Exception:
+                        pass
+                excel_file = pd.ExcelFile(uploaded_file)
+                self._cached_excel_file = excel_file
             
-            wb = load_workbook(uploaded_file, read_only=True, data_only=True)
-            
-            mapping_sheet = None
-            for sheet in wb.worksheets:
-                if sheet.title.strip().lower() == "mapping":
-                    mapping_sheet = sheet
+            snapshot_sheet_name = None
+            for sheet in excel_file.sheet_names:
+                if sheet.strip().lower() == "snapshot":
+                    snapshot_sheet_name = sheet
                     break
             
-            if mapping_sheet is None:
+            if snapshot_sheet_name is None:
                 return None
+                
+            df = pd.read_excel(excel_file, sheet_name=snapshot_sheet_name, header=None)
             
-            # Read all rows so we can walk each column independently
-            all_rows = [
-                row for row in mapping_sheet.iter_rows(values_only=True)
-                if row is not None
-            ]
-            
-            if len(all_rows) < 2:
+            if len(df) < 2:
                 # No header + values
                 return None
+                
+            all_rows = df.astype(object).where(pd.notna(df), None).values.tolist()
             
             header_row = all_rows[0]
             # Header cells define the grouping levels, left-to-right.
@@ -487,7 +482,7 @@ class DataProcessor:
             for row in all_rows[1:]:
                 for i in col_indices:
                     cell = row[i] if i < len(row) else None
-                    if cell is not None and str(cell).strip() != "":
+                    if cell is not None and str(cell).strip() != "" and str(cell).strip().lower() != "nan":
                         last_seen[i] = str(cell).strip()
 
                 # A row is a leaf only if its OWN innermost cell is filled;
@@ -527,7 +522,7 @@ class DataProcessor:
                 "combinations": combinations,  # ordered, deduped valid tuples
             }
         except Exception as e:
-            logger.warning(f"Failed to parse Mapping sheet: {str(e)}")
+            logger.warning(f"Failed to parse Snapshot sheet: {str(e)}")
             return None
     
     def clean_data(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

@@ -86,7 +86,7 @@ class QAReportApp:
                 with st.spinner("Processing file..."):
                     headers, records = self.processor.load_and_parse_excel(uploaded_file)
                     
-                    # Parse optional Mapping sheet (used by Custom Multi-Level Report)
+                    # Parse optional Snapshot sheet (used by Custom Multi-Level Report)
                     mapping_data = self.processor.parse_mapping_sheet(uploaded_file)
                     st.session_state.mapping_data = mapping_data
                     # Reset any prior column mapping since file changed
@@ -528,9 +528,9 @@ class QAReportApp:
           - segment (bool)
           - jt_persona (bool)
           - custom_multi_level (bool)
-          - custom_multi_level_columns (List[str]) — QA columns in Mapping-sheet header order
+          - custom_multi_level_columns (List[str]) — QA columns in Snapshot-sheet header order
           - custom_multi_level_expected (Dict[str, List[str]]) — expected values per QA column
-          - custom_multi_level_combinations (List[tuple]) — valid Mapping-defined combos
+          - custom_multi_level_combinations (List[tuple]) — valid Snapshot-defined combos
         """
         optional_reports: Dict[str, Any] = {
             "segment": False,
@@ -574,25 +574,25 @@ class QAReportApp:
             else:
                 st.info("📝 JT Persona Tagging column not found — JT Persona Wise Report unavailable")
 
-        # Row 2: Mapping-sheet-driven multi-level report
+        # Row 2: Snapshot-sheet-driven multi-level report
         st.markdown("")  # spacer
 
         if not mapping_data:
-            # No Mapping sheet → report unavailable. Disable the checkbox
+            # No Snapshot sheet → report unavailable. Disable the checkbox
             # entirely (no manual-entry fallback).
             st.checkbox(
                 "Include Custom Multi-Level Report",
                 value=False,
                 disabled=True,
-                help="Requires a 'Mapping' sheet in your uploaded QA file."
+                help="Requires a 'Snapshot' sheet in your uploaded QA file."
             )
-            st.info("📝 Add a 'Mapping' sheet to your QA file to enable this report")
+            st.info("📝 Add a 'Snapshot' sheet to your QA file to enable this report")
             return optional_reports
 
         optional_reports["custom_multi_level"] = st.checkbox(
-            "Include Custom Multi-Level Report — driven by your Mapping sheet",
+            "Include Custom Multi-Level Report — driven by your Snapshot sheet",
             help=(
-                "Groups qualified counts by the columns of your 'Mapping' sheet, "
+                "Groups qualified counts by the columns of your 'Snapshot' sheet, "
                 "in left-to-right order (leftmost = outermost group). The report "
                 "shows only the parent→child combinations defined in the Mapping "
                 "sheet (merged cells = hierarchy), so each parent keeps only its "
@@ -619,9 +619,9 @@ class QAReportApp:
     ) -> tuple:
         """
         Render the ONLY user input for the Custom Multi-Level Report: map each
-        Mapping-sheet column name (business name) to the actual QA data column.
+        Snapshot-sheet column name (business name) to the actual QA data column.
 
-        Everything else is inferred from the Mapping sheet:
+        Everything else is inferred from the Snapshot sheet:
           - Headers, left-to-right = grouping levels (outermost first)
           - Each row = one valid parent→child combination (hierarchy)
 
@@ -643,11 +643,11 @@ class QAReportApp:
         column_mapping: Dict[str, str] = st.session_state.get('column_mapping', {})
 
         with st.expander(
-            f"🔗 Column Mapping ({len(mapping_columns)} level(s) from your Mapping sheet)",
+            f"🔗 Column Mapping ({len(mapping_columns)} level(s) from your Snapshot sheet)",
             expanded=True
         ):
             st.caption(
-                "Map each column from your Mapping sheet to the matching column "
+                "Map each column from your Snapshot sheet to the matching column "
                 "in the QA data. Best guesses are pre-selected — adjust if needed. "
                 "All columns must be mapped for the report to generate."
             )
@@ -685,7 +685,7 @@ class QAReportApp:
         unmapped = [name for name in mapping_columns if name not in column_mapping]
         if unmapped:
             st.warning(
-                "⚠️ Map every Mapping-sheet column before the Custom Multi-Level "
+                "⚠️ Map every Snapshot-sheet column before the Custom Multi-Level "
                 f"Report can generate. Still unmapped: {', '.join(unmapped)}"
             )
             return [], {}, []
@@ -695,13 +695,13 @@ class QAReportApp:
         duplicates = sorted({c for c in mapped_cols if mapped_cols.count(c) > 1})
         if duplicates:
             st.error(
-                "⚠️ Each QA column can map to only one Mapping column. "
+                "⚠️ Each QA column can map to only one Snapshot column. "
                 f"Mapped more than once: {', '.join(duplicates)}"
             )
             return [], {}, []
 
         # ---------- Derive levels, expected values, and valid combinations ----------
-        # Order preserved from Mapping-sheet header order (leftmost = outermost).
+        # Order preserved from Snapshot-sheet header order (leftmost = outermost).
         # Only the column IDENTITY is mapped; the level VALUES (and therefore the
         # combinations) are unchanged, so combinations align to selected_cols.
         selected_cols = [column_mapping[name] for name in mapping_columns]
@@ -768,14 +768,14 @@ class QAReportApp:
                     )
                     reports["Custom Multi-Level Report"] = report_data
 
-                    # Persist the Mapping-defined combinations so the Excel
+                    # Persist the Snapshot-defined combinations so the Excel
                     # export can highlight out-of-snapshot rows on download.
                     st.session_state.multi_level_defined_combos = [
                         tuple(c) for c in combinations
                     ]
 
                     # Combination-level validation: any qualified pairing not
-                    # defined in the Mapping sheet is still included as a row,
+                    # defined in the Snapshot sheet is still included as a row,
                     # but flagged. Extra rows are exactly the table rows whose
                     # combination isn't in the defined set.
                     self._warn_out_of_mapping_combos(report_data, selected_cols, combinations)
@@ -799,10 +799,10 @@ class QAReportApp:
         expected_combinations: List[tuple],
     ) -> None:
         """
-        Surface qualified combinations that aren't defined in the Mapping sheet.
+        Surface qualified combinations that aren't defined in the Snapshot sheet.
 
         The report already includes them as rows (Warn + include). Any data row
-        whose combination isn't in the defined set is an out-of-Mapping pairing
+        whose combination isn't in the defined set is an out-of-Snapshot pairing
         with qualified leads — list it so the discrepancy is visible. No-op when
         there are no combinations to validate against.
         """
@@ -824,7 +824,7 @@ class QAReportApp:
         if extras:
             st.warning(
                 "⚠️ Qualified leads found in combinations not defined in your "
-                "Mapping sheet (included as extra rows): " + "; ".join(extras)
+                "Snapshot sheet (included as extra rows): " + "; ".join(extras)
             )
 
     def _display_combined_qa_report(self, reports: Dict[str, List[List[Any]]]) -> None:
@@ -851,10 +851,51 @@ class QAReportApp:
                 st.markdown(f'<div class="custom-heading">📊 {report_name}</div>', unsafe_allow_html=True)
                 report_data = reports[report_name]
                 if report_data and len(report_data) > 1:
-                    table_dict = self._convert_to_table_dict(report_data)
-                    st.table(table_dict)
+                    if report_name == "Custom Multi-Level Report" and st.session_state.get('multi_level_defined_combos') is not None:
+                        self._display_custom_multi_level_report(report_data)
+                    else:
+                        table_dict = self._convert_to_table_dict(report_data)
+                        st.table(table_dict)
                 else:
                     st.info("No qualified data available for this report.")
+                    
+    def _display_custom_multi_level_report(self, report_data: List[List[Any]]) -> None:
+        """Display the Custom Multi-Level Report as a styled dataframe."""
+        import pandas as pd
+        
+        headers = report_data[0]
+        df = pd.DataFrame(report_data[1:], columns=headers)
+        
+        defined_combos = st.session_state.multi_level_defined_combos
+        num_grouping = len(headers) - 1
+        
+        valid_prefixes = [set() for _ in range(num_grouping)]
+        for defined_combo in defined_combos:
+            for i in range(1, num_grouping + 1):
+                valid_prefixes[i-1].add(defined_combo[:i])
+                
+        def highlight_mismatch(row):
+            styles = [''] * len(row)
+            if str(row[headers[0]]).strip().lower() == "grand total":
+                return styles
+                
+            combo = tuple(row[:num_grouping])
+            if combo not in defined_combos:
+                mismatch_idx = num_grouping - 1
+                for i in range(num_grouping):
+                    if combo[:i+1] not in valid_prefixes[i]:
+                        mismatch_idx = i
+                        break
+                
+                # Highlight mismatch cell and count cell
+                highlight = 'background-color: #ffcccc; color: #990000; font-weight: bold;'
+                styles[mismatch_idx] = highlight
+                styles[-1] = highlight
+            
+            return styles
+            
+        styled_df = df.style.apply(highlight_mismatch, axis=1)
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
     
     def _display_core_reports(self, reports: Dict[str, List[List[Any]]]) -> None:
         """Display core reports (Agent Wise Summary and Primary Reason Disqualified)."""
@@ -938,7 +979,7 @@ class QAReportApp:
         - Date-wise Agent Wise Summary (for {selected_date.strftime('%d-%b-%y')})
         - Date-wise Primary Reason Disqualified (for {selected_date.strftime('%d-%b-%y')})
         - Optional Segment, JT Persona, and Custom Multi-Level reports (date-wise or full dataset, per your selection)
-        - In the Custom Multi-Level Report, rows **highlighted in red** are combinations not defined in your Mapping snapshot
+        - In the Custom Multi-Level Report, rows **highlighted in red** are combinations not defined in your Snapshot data
         - Professional formatting ready to copy and paste!
         """)
 

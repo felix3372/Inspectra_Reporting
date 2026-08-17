@@ -156,11 +156,11 @@ class ReportGenerator:
     ) -> List[List[Any]]:
         """
         Build a report from an explicit set of valid combinations (the tree
-        defined by the Mapping sheet). Each defined combination is one row
+        defined by the Snapshot sheet). Each defined combination is one row
         (count 0 if no qualified records match). Qualified combinations that
         are NOT defined are appended as extra rows (never hidden), ordered so
         they group under their parent. Values are matched case- and
-        whitespace-insensitively and folded to the Mapping spelling.
+        whitespace-insensitively and folded to the Snapshot spelling.
 
         `expected_combinations` is an ordered list of value-tuples aligned to
         `level_columns` (tuple[i] is the value for level_columns[i]).
@@ -176,7 +176,7 @@ class ReportGenerator:
         def _norm(s):
             return " ".join(str(s).strip().lower().split())
 
-        # Ordered defined combinations (deduped, Mapping order preserved)
+        # Ordered defined combinations (deduped, Snapshot order preserved)
         defined: List[tuple] = list(dict.fromkeys(tuple(c) for c in expected_combinations))
         defined_set = set(defined)
 
@@ -213,7 +213,7 @@ class ReportGenerator:
                 all_combos.append(combo)
 
         # Per-level rank for hierarchical ordering: expected values first (in
-        # Mapping order), then any extra values by total count desc, then name.
+        # Snapshot order), then any extra values by total count desc, then name.
         per_level_rank: List[Dict[str, int]] = []
         for i in range(n):
             rank = {v: idx for idx, v in enumerate(per_level_order[i])}
@@ -257,7 +257,7 @@ class ReportGenerator:
 
         Two modes:
         - HIERARCHICAL (preferred, when `expected_combinations` is given):
-          only the exact combinations defined in the Mapping sheet are shown
+          only the exact combinations defined in the Snapshot sheet are shown
           (e.g. PE TAL keeps only its own personas), plus any qualified
           combinations found in the data but not defined (appended, so nothing
           qualified is hidden). Missing defined combinations show 0.
@@ -282,7 +282,7 @@ class ReportGenerator:
         When expected_values is provided for a column, values seen in the
         data but NOT in the expected list are still appended (so unexpected
         records are visible for QA). Expected values appear first in the
-        mapping-defined order, extras follow sorted by count then name.
+        snapshot-defined order, extras follow sorted by count then name.
         
         Combinations shown are the cartesian product of per-level universes,
         so combinations with zero qualified records still appear as 0 rows.
@@ -294,7 +294,7 @@ class ReportGenerator:
             level_columns: Ordered list of QA data column names to group by
                            (outermost first, innermost last)
             expected_values: Optional {qa_column_name: [ordered expected
-                             values]} — usually resolved from a Mapping sheet
+                             values]} — usually resolved from a Snapshot sheet
                              + user's column mapping
             count_header: Header for the last column (default "Count").
         
@@ -304,7 +304,7 @@ class ReportGenerator:
         if not level_columns:
             return [[count_header]]
 
-        # Hierarchical mode: only Mapping-defined combinations (+ qualified extras)
+        # Hierarchical mode: only Snapshot-defined combinations (+ qualified extras)
         if expected_combinations:
             return ReportGenerator._hierarchical_report(
                 records, level_columns, expected_combinations, count_header
@@ -320,13 +320,13 @@ class ReportGenerator:
 
         def _norm(s):
             # Case- and whitespace-insensitive key for matching data values to
-            # the Mapping sheet's expected values, so spelling variants like
+            # the Snapshot sheet's expected values, so spelling variants like
             # "Operations & IT / Security" and "Operations & It / Security"
-            # collapse into a single Mapping-defined row.
+            # collapse into a single Snapshot-defined row.
             return " ".join(str(s).strip().lower().split())
 
         # Per-level canonical map: normalized value -> the exact label from the
-        # Mapping sheet (first occurrence wins, preserving Mapping spelling).
+        # Snapshot sheet (first occurrence wins, preserving Snapshot spelling).
         # Levels without expected values are matched as-is (no folding).
         canonical_maps: List[Dict[str, str]] = []
         for col in level_columns:
@@ -387,7 +387,7 @@ class ReportGenerator:
             return [header]
 
         # Count qualified per combination (canonicalized so case/spacing
-        # variants fold into their Mapping-defined row).
+        # variants fold into their Snapshot-defined row).
         qualified_counts: Dict[tuple, int] = defaultdict(int)
         for record in records:
             if DataProcessor.normalize(record.get("Lead Status", "")) == "qualified":
