@@ -93,6 +93,20 @@ class QAReportApp:
                     if 'column_mapping' in st.session_state:
                         del st.session_state['column_mapping']
                     
+                    # DQ Reason validation — must match accepted list
+                    dq_issues, _ = self.validator.find_dq_reason_issues(records)
+                    if dq_issues:
+                        st.error(f"❌ Found {len(dq_issues)} invalid DQ Reason value(s). Please correct your file and re-upload.")
+                        for issue in dq_issues:
+                            suggestion = ""
+                            if issue.get('fuzzy_matches'):
+                                suggestion = f"  *(Did you mean: **{issue['fuzzy_matches'][0]}**?)*"
+                            st.markdown(f"- **`{issue['original']}`** — {issue['count']:,} record(s){suggestion}")
+                        with st.expander("📋 View Accepted DQ Reasons", expanded=True):
+                            for i, reason in enumerate(sorted(self.config.ACCEPTED_DQ_REASON), 1):
+                                st.markdown(f"`{i}.` {reason}")
+                        return
+                    
                     # Lead Status correction interface
                     if not st.session_state.get('corrections_reviewed', False):
                         issues, auto_suggestions = self.validator.find_lead_status_issues(records)

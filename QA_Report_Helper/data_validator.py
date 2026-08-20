@@ -148,3 +148,55 @@ class DataValidator:
             summary += f"  • '{original}' → '{corrected}'\n"
         
         return summary
+    
+    def find_dq_reason_issues(self, records: List[Dict[str, Any]]) -> Tuple[List[Dict], Dict[str, str]]:
+        """
+        Find invalid DQ Reason values for disqualified records and suggest corrections.
+        
+        Args:
+            records: List of data records
+            
+        Returns:
+            Tuple of (issues_list, auto_suggestions_dict)
+        """
+        valid_reasons = set(self.config.ACCEPTED_DQ_REASON)
+        reason_counts = Counter()
+        
+        # Count DQ Reasons for disqualified records only
+        for record in records:
+            lead_status = self.normalize_value(record.get('Lead Status', ''))
+            if lead_status == 'disqualified':
+                dq_reason = record.get('DQ Reason')
+                if dq_reason is not None:
+                    clean_reason = str(dq_reason).strip()
+                    if clean_reason and clean_reason not in ('', '-', '(Blank)'):
+                        reason_counts[clean_reason] += 1
+        
+        issues = []
+        auto_suggestions = {}
+        
+        for reason, count in reason_counts.items():
+            if reason not in valid_reasons:
+                # Try title case normalization
+                title_case = reason.strip().title()
+                auto_suggestion = title_case if title_case in valid_reasons else None
+                
+                # Fuzzy match if no auto suggestion
+                fuzzy_matches = get_close_matches(reason, list(valid_reasons), n=3, cutoff=0.5)
+                if not auto_suggestion and fuzzy_matches:
+                    auto_suggestion = fuzzy_matches[0]
+                
+                issue = {
+                    'original': reason,
+                    'count': count,
+                    'auto_suggestion': auto_suggestion,
+                    'fuzzy_matches': fuzzy_matches,
+                    'valid_options': sorted(list(valid_reasons))
+                }
+                issues.append(issue)
+                
+                if auto_suggestion:
+                    auto_suggestions[reason] = auto_suggestion
+        
+        logger.info(f"Found {len(issues)} DQ Reason issues affecting {sum(i['count'] for i in issues)} records")
+        return issues, auto_suggestions

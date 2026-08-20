@@ -19,7 +19,7 @@ class Config:
         "Invalid Industry", "Invalid Employee Size", "Invalid Revenue Size", 
         "Same Prospect Duplicate", "Client Suppression", "Suspect Profile",
         "Internal Suppression", "Dead Contact", "Not In TAL", "Extra CPC", 
-        "Invalid Zipcode", "Invalid Address"
+        "Invalid Address"
     )
     MAX_FILE_SIZE_MB: int = 50
     SUPPORTED_EXTENSIONS: Tuple[str, ...] = ('xlsx', 'xlsm')
